@@ -90,7 +90,7 @@ int main()
 
 
     //writer.open("Video.mp4", fourcc, fps, cv::Size(width, height));
-    writer.open("CloneVideo.avi", fourcc, fps, cv::Size(width, height),false);
+    writer.open("CloneVideo.avi", fourcc, fps, cv::Size(width, height), false);
     if (!capture.isOpened()) {
         //error in opening the video input
         cerr << "Unable to open file!" << endl;
@@ -98,19 +98,19 @@ int main()
     }
     Mat frame1, prvs;
     capture >> frame1;
-    
+
 
     Mat copy1, copy2;
     Mat grayImg1, grayImg2;
     cvtColor(frame1, copy1, COLOR_BGR2GRAY);
     cvtColor(frame1, prvs, COLOR_BGR2GRAY);
     // medianBlur(prvs, prvs, 15);
-   
-    Mat frame2,frame2copy;
+
+    Mat frame2, frame2copy;
     DWORD start = GetTickCount();
-    for(;;) {
+    for (;;) {
         for (;;) {
-           
+
             vector< vector<cv::Point> > contours1;
             vector< vector<cv::Point> > contours_subset1;
             vector<cv::Vec4i> hierarchy1;
@@ -124,7 +124,7 @@ int main()
             Mat next;
             int j = 0, i = 0;
             int c = 0, e = 0;
-            
+
             cv::Point minP1;
             cv::Point maxP1;
             cv::Point minP2;
@@ -145,7 +145,7 @@ int main()
             cvtColor(frame2, copy2, COLOR_BGR2GRAY);
             cvtColor(frame2, next, COLOR_BGR2GRAY);
             //medianBlur(next, next, 15);
-            
+
             Mat flow(prvs.size(), CV_32FC2);
             calcOpticalFlowFarneback(prvs, next, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
             Mat flow_copy;
@@ -187,19 +187,19 @@ int main()
             threshold(mask2, bgf1, 120, 255, THRESH_BINARY);
             threshold(mask4, bgf2, 120, 255, THRESH_BINARY);
             imshow("b", bgf1);
-            
+
             /*
             bitwise_and(copy2, bgf1, bgf1);
             bitwise_and(copy2, bgf2, bgf2);
             */
-            
+
             cv::findContours(bgf1, contours1, hierarchy1, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
             for (auto contour1 = contours1.begin(); contour1 != contours1.end(); contour1++) {
                 for (i = 0; i < contours1.size(); i++) {
                     double area;
                     area = contourArea(contours1.at(i));
                     printf("area1:%lf\n", area);
-                    if (area > 900 && area<3000) {
+                    if (area > 900 && area < 3000) {
                         contours_subset1.push_back(contours1.at(i));
                     }
                 }
@@ -212,13 +212,13 @@ int main()
                     double area;
                     area = contourArea(contours2.at(j));
                     printf("area2:%lf\n", area);
-                    if (area > 900  && area<3000) {
+                    if (area > 900 && area < 3000) {
                         contours_subset2.push_back(contours2.at(j));
                     }
                 }
                 printf("\n");
             }
-            
+
             for (int i = 0; i < contours_subset1.size(); i++) {
                 minP1 = minPoint(contours_subset1.at(i));
                 maxP1 = maxPoint(contours_subset1.at(i));
@@ -261,7 +261,7 @@ int main()
             s2 = ((P4X - P2X) * (P2Y - P3Y) - (P4Y - P2Y) * (P2X - P3X)) / 2;
 
             //for (auto d = contours_subset1.begin(); d < contours_subset1.end(); d++) {
-            for (k = 0; k < 30; k++) {
+            for (k = 0; k < 50; k++) {
                 if (c > 1 || e > 1) {
 
                     v.at(k).x = P1X + (P3X - P1X) * s1 / (s1 + s2);
@@ -276,19 +276,19 @@ int main()
                                 count.at(i) += 1;
                             }
                         }
-                       
+
                     }
                 }
-            }
-            int max = *std::max_element(count.begin(), count.end());
-            std::vector<int>::iterator maxIt = std::max_element(count.begin(), count.end());
-            size_t maxIndex = std::distance(count.begin(), maxIt);
-            l = maxIndex;
-            G = v.at(l);
 
-            cv::circle(frame2, G, 15, Scalar(255, 0, 255), 3, 8);
-            //cv::circle(frame2, v.at(l), 10, Scalar(255, 0, 0), 3, 8);
-                
+                int max = *std::max_element(count.begin(), count.end());
+                std::vector<int>::iterator maxIt = std::max_element(count.begin(), count.end());
+                size_t maxIndex = std::distance(count.begin(), maxIt);
+                l = maxIndex;
+                G = v.at(l);
+
+                cv::circle(frame2, G, 15, Scalar(255, 0, 255), 3, 8);
+                //cv::circle(frame2, v.at(l), 10, Scalar(255, 0, 0), 3, 8);
+            }
             cvtColor(hsv8, bgr, COLOR_HSV2BGR);
 
             imshow("image", frame2);
@@ -300,15 +300,15 @@ int main()
             //int keyboard = waitKey(30);
             if (keyboard == 'q' || keyboard == 27)
                 break;
-            
+
             DWORD end = GetTickCount();
-            if ((double)(end - start) / 1000 > 5) {
+            if ((double)(end - start) / 1000 > 2 && G != cv::Point(0,0)) {
                 break;
             }
             prvs = next;
             frame1 = frame2;
         }
-        
+
         Rect roi(G.x, G.y - 50, 200, 150);
         cv::Ptr<cv::Tracker> tracker = cv::TrackerMIL::create();
         tracker->init(frame2, roi);
