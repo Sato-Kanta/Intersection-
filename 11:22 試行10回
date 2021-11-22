@@ -53,7 +53,7 @@ cv::Point maxPoint(vector<cv::Point> contours) {
 Mat mask1(Mat img) {
     Mat mask, mask2, bgf1;
     Mat kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(23, 23));
-    inRange(img, Scalar(37, 64, 0), Scalar(57, 255, 255), mask);
+    inRange(img, Scalar(35, 64, 0), Scalar(60, 255, 255), mask);
     morphologyEx(mask, mask2, MORPH_OPEN, kernel);
     for (int i = 0; i < 3; i++) {
         morphologyEx(mask2, mask2, MORPH_OPEN, kernel);
@@ -125,12 +125,12 @@ int main()
             int j = 0, i = 0;
             int c = 0, e = 0;
 
-            cv::Point minP1;
-            cv::Point maxP1;
-            cv::Point minP2;
-            cv::Point maxP2;
-            cv::Point miniP;
-            cv::Point maxiP;
+            cv::Point minP1 = cv::Point(0, 0);
+            cv::Point maxP1 = cv::Point(0, 0);
+            cv::Point minP2 = cv::Point(0, 0);
+            cv::Point maxP2 = cv::Point(0, 0);
+            cv::Point miniP = cv::Point(0, 0);
+            cv::Point maxiP = cv::Point(0, 0);
 
             int keyboard = waitKey(30);
 
@@ -180,7 +180,7 @@ int main()
             cv::findContours(bgf1, contours1, hierarchy1, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
             for (auto contour1 = contours1.begin(); contour1 != contours1.end(); contour1++) {
                 for (i = 0; i < contours1.size(); i++) {
-                    double area;
+                    double area=0;
                     area = contourArea(contours1.at(i));
                     if (area > 15 && area < 30) {
                         contours_subset1.push_back(contours1.at(i));
@@ -191,7 +191,7 @@ int main()
             cv::findContours(bgf2, contours2, hierarchy2, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
             for (auto contour2 = contours2.begin(); contour2 != contours2.end(); contour2++) {
                 for (j = 0; j < contours2.size(); j++) {
-                    double area;
+                    double area=0;
                     area = contourArea(contours2.at(j));
                     if (area > 15 && area < 30) {
                         contours_subset2.push_back(contours2.at(j));
@@ -216,7 +216,7 @@ int main()
                 e++;
             }
 
-            double s1, s2;
+            double s1=0, s2=0;
             int P1X = minP2.x;
             int P1Y = minP2.y;
             int P2Y = maxiP.y;
@@ -239,10 +239,6 @@ int main()
             v.at(k).y = P1Y + ((double)P3Y - (double)P1Y) * s1 / (s1 + s2);
             if (v.at(k).x > 0 && v.at(k).y > 0) {
 
-                if (k > 10) {
-                    k = 0;
-                }
-
                 if (k > 5) {
 
                     for (int i = 0; i < 5; i++) {
@@ -259,14 +255,15 @@ int main()
                     l = maxIndex;
                     G = v.at(l);
                 }
-                //printf("%d\n%d回目\nx:%d\ny:%d\n", k, l, v.at(k).x, v.at(k).y);
-                k++;
+                
                 cv::circle(frame2, v.at(k), 10, Scalar(255, 0, 0), 3, 8);
-
+                k++;
+                if (k > 10) {
+                    k = 0;
+                }
 
                 if (G != cv::Point(0, 0)) {
                     printf("%d\n%d回目\n", k, l);
-                    p++;
                     cv::circle(frame2, G, 15, Scalar(255, 0, 255), 3, 8);
                 }
             }
