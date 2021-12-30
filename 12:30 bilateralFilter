@@ -129,7 +129,7 @@ cv::Mat templateMatch(cv::Mat src, cv::Mat tmp) {
             cv::rectangle(dst, roi_rect, cv::Scalar(0, 0, 255), 3);
             //}
             xb = x;
-            xb = y;
+            yb = y;
         }
     }
 
