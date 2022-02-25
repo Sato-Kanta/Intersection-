@@ -1,0 +1,528 @@
+#include <iostream>
+#include<opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/video.hpp>
+#include <opencv2/video/tracking.hpp>
+#include<vector>
+#include<string>
+#include<cstring>
+#include <opencv2/imgcodecs.hpp>
+#include<windows.h>
+#include <numeric>      // std::iota
+#include <algorithm>    // std::sort, std::stable_sort
+#include<math.h>
+
+#ifdef _DEBUG
+#pragma comment(lib, "opencv_world452d.lib")
+#else
+#pragma comment(lib, "opencv_world452.lib")
+#endif
+
+using namespace cv;
+using namespace std;
+
+FILE* fp;//ファイルポインタ宣言
+
+char FileName[127] = { "FILE_AD" };//ファイルの名前用の文字列
+
+cv::Point minPoint(vector<cv::Point> contours) {
+    double minx = contours.at(0).x;
+    double miny = contours.at(0).y;
+    for (int i = 1; i < contours.size(); i++) {
+        if (minx > contours.at(i).x) {
+            minx = contours.at(i).x;
+        }
+        if (miny > contours.at(i).y) {
+            miny = contours.at(i).y;
+        }
+    }
+    return cv::Point(minx, miny);
+}
+//最大座標を求める
+cv::Point maxPoint(vector<cv::Point> contours) {
+    double maxx = contours.at(0).x;
+    double maxy = contours.at(0).y;
+    for (int i = 1; i < contours.size(); i++) {
+        if (maxx < contours.at(i).x) {
+            maxx = contours.at(i).x;
+        }
+        if (maxy < contours.at(i).y) {
+            maxy = contours.at(i).y;
+        }
+    }
+    return cv::Point(maxx, maxy);
+}
+
+Mat mask1(Mat img) {
+    Mat mask, mask2, bgf1;
+    int White = 0;
+    Mat kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(21, 21));
+    
+    //inRange(img, Scalar(28, 64, 0), Scalar(77, 255, 255), mask);
+    inRange(img, Scalar(20, 64, 0), Scalar(85, 255, 255), mask);
+    morphologyEx(mask, mask2, MORPH_OPEN, kernel);
+    for (int i = 0; i < 3; i++) {
+        morphologyEx(mask2, mask2, MORPH_OPEN, kernel);
+        medianBlur(mask2, mask2, 5);
+    }
+    threshold(mask2, bgf1, 120, 255, THRESH_BINARY);
+        return bgf1;
+}
+
+Mat mask2(Mat img) {
+    Mat mask3, mask4, bgf2;
+    Mat kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(21, 21));
+    //inRange(img, Scalar(133, 64, 0), Scalar(182, 255, 255), mask3);
+    inRange(img, Scalar(125, 64, 0), Scalar(190, 255, 255), mask3);
+    morphologyEx(mask3, mask4, MORPH_OPEN, kernel);
+    for (int i = 0; i < 3; i++) {
+        morphologyEx(mask4, mask4, MORPH_OPEN, kernel);
+        medianBlur(mask4, mask4, 5);
+    }
+    threshold(mask4, bgf2, 120, 255, THRESH_BINARY);
+    return bgf2;
+}
+
+cv::Mat templateMatch(cv::Mat src, cv::Mat tmp) {
+
+    int count = 0;
+    int sumx = 0, sumy = 0;
+    const int __TARGET_NUM__ = 30;
+    cv::Mat output, dst;
+    dst = src.clone();
+    //テンプレートマッチング
+    cv::matchTemplate(src, tmp, output, cv::TM_CCOEFF);
+    //0~1の値に標準化
+    cv::normalize(output, output, 0, 1, cv::NORM_MINMAX, -1, cv::Mat());
+    //2次元から1次元へ変換
+    cv::Mat one_row = output.reshape(1, 1);
+
+    std::vector<float> one_row_vec;
+    std::vector<float> one_row_index;
+
+    //cv::Mat -> std::vector に変換
+    one_row_vec.assign(one_row.begin<float>(), one_row.end<float>());
+    std::vector<int> index(one_row_vec.size());
+
+    //ソートインデックス配列用に整数列を作成する(0,1,2,3,4,5......)
+    std::iota(index.begin(), index.end(), 0);
+
+    //ソートをかける
+    std::sort(index.begin(), index.end(), [&](int a, int b) {return one_row_vec[a] > one_row_vec[b]; });
+    int xb = 0, yb = 0;
+    for (int i = 0; i < __TARGET_NUM__; i++) {
+        //std::cout << index[i] << ":" << one_row_vec[index[i]] << std::endl;
+        if (one_row_vec[index[i]] > 0.999) {
+            count++;
+            // 1次元から2次元に変換 
+            int x = index[i] % output.cols;
+            int y = index[i] / output.cols;
+
+            sumx += x;
+            sumy += y;
+            //if (abs(x - xb) < 5 || abs(y - yb) < 5) {
+            if (count % 10 == 0) {
+                x = sumx / 10;
+                y = sumy / 10;
+                sumx = 0;
+                sumy = 0;
+                std::cout << /*"(" <<*/ x << "," << y /* << ")" */ << std::endl;
+                //std::cout << "-----------------" << std::endl;
+            }
+            cv::Rect roi_rect = cv::Rect(x, y, tmp.cols, tmp.rows);
+            cv::rectangle(dst, roi_rect, cv::Scalar(0, 0, 255), 3);
+            //}
+            xb = x;
+            yb = y;
+        }
+    }
+
+    return dst;
+}
+
+Mat Optical(Mat img1, Mat img2) {
+    Mat flow(img1.size(), CV_32FC2);
+    calcOpticalFlowFarneback(img1, img2, flow, 0.5, 3, 17, 3, 5, 1.1, 0);
+    Mat flow_copy;
+    //GaussianBlur(flow, flow_copy, cv::Size(3, 3), 0, 0);
+    // visualization
+    Mat flow_parts[2];
+    split(flow, flow_parts);
+    //split(flow_copy, flow_parts);
+
+    //split(flow, flow_parts);
+    Mat magnitude, angle, magn_norm;
+    cartToPolar(flow_parts[0], flow_parts[1], magnitude, angle, true);
+    normalize(magnitude, magn_norm, 0.0f, 1.0f, NORM_MINMAX);
+    //imshow("an", magn_norm);
+
+    angle *= ((1.f / 360.f) * (180.f / 255.f));
+    //build hsv image
+    Mat _hsv[3], hsv, hsv8, bgr;
+    _hsv[0] = angle;
+    _hsv[1] = Mat::ones(angle.size(), CV_32F);
+    _hsv[2] = magn_norm;
+
+    Mat h1, h2, h12;
+    threshold(_hsv[0], h1, 60, 360, THRESH_BINARY);
+
+    threshold(_hsv[0], h2, 120, 360, THRESH_BINARY);
+    bitwise_or(h1, h2, h12);
+    merge(_hsv, 3, hsv);
+    hsv.convertTo(hsv8, CV_8U, 255.0);
+
+    return hsv8;
+}
+
+vector<vector<Point>> contours(Mat img) {
+    vector< vector<cv::Point> > contours;
+    vector< vector<cv::Point> > contours_subset;
+    vector<cv::Vec4i> hierarchy;
+    cv::findContours(img, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+    for (auto contour = contours.begin(); contour != contours.end(); contour++) {
+        for (int i = 0; i < contours.size(); i++) {
+            double area1 = 0;
+            area1 = contourArea(contours.at(i));
+            if (area1 > 18 && area1 < 30) {
+                contours_subset.push_back(contours.at(i));
+            }
+        }
+    }
+    return contours_subset;
+}
+
+Point center(Point max,Point min,Point MAX,Point MIN) {
+    Point v;
+    int k=0;
+    double s1 = 0, s2 = 0;
+    int P1X = MIN.x;
+    int P1Y = MIN.y;
+    int P2Y = min.y;
+    int P2X = min.x;
+    int P3X = MAX.x;
+    int P3Y = MAX.y;
+    int P4Y = max.y;
+    int P4X = max.x;
+
+    s1 = ((P4X - P2X) * (P1Y - P2Y) - (P4Y - P2Y) * (P1X - P2X)) / 2;
+    s2 = ((P4X - P2X) * (P2Y - P3Y) - (P4Y - P2Y) * (P2X - P3X)) / 2;
+
+    v = cv::Point(0, 0);
+    v.x = P1X + ((double)P3X - (double)P1X) * s1 / (s1 + s2);
+    v.y = P1Y + ((double)P3Y - (double)P1Y) * s1 / (s1 + s2);
+
+    return v;
+}
+
+int main()
+{
+    //VideoCapture capture("WIN_20211111_12_16_19_Pro_Trim.mp4");
+    //VideoCapture capture(0);
+    VideoCapture capture(0);
+    VideoWriter writer;
+    /*
+    errno_t error;
+    SYSTEMTIME systime;//時間記録用
+    GetLocalTime(&systime);
+    sprintf_s(FileName, "%d_%d_%dh%dm%d.csv", systime.wMonth, systime.wDay, systime.wHour, systime.wMinute, systime.wSecond);
+    error = fopen_s(&fp, FileName, "w+");//ファイル書き込み呼び出し
+    */
+
+    int width, height, fourcc;
+    double fps, fps1;
+    fourcc = cv::VideoWriter::fourcc('X', 'V', 'I', 'D');
+    //fourcc = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
+    width = (int)capture.get(cv::CAP_PROP_FRAME_WIDTH);
+    height = (int)capture.get(cv::CAP_PROP_FRAME_HEIGHT);
+    //fps1 = capture.get(cv::CAP_PROP_FPS);
+    fps = 10.0;
+    int k = 0, l = 0;
+    int p = 0;
+    int c = 0, e = 0;
+    double processtime = 0;
+    vector<cv::Point> v(1000);
+    vector<Point> Gv(11);
+    vector<Point>Gs(11);
+    vector<int> count(10);
+    vector<double> distance(3);
+
+    //writer.open("Video.mp4", fourcc, fps, cv::Size(width, height));
+    writer.open("CloneVideo.avi", fourcc, fps, cv::Size(width, height), false);
+    if (!capture.isOpened()) {
+        //error in opening the video input
+        cerr << "Unable to open file!" << endl;
+        return 0;
+    }
+    Mat frame1, prvs,prvs1;
+    capture >> frame1;
+    Rect selection(30, 120, 400, 350);
+    Mat copy2;
+    //medianBlur(frame1, frame1, 9);
+    cvtColor(frame1, prvs1, COLOR_BGR2GRAY);
+    medianBlur(prvs1,prvs1,5);
+    bilateralFilter(prvs1,prvs,17,40,5);
+
+    prvs = prvs(selection);
+    
+    Mat frame2,frame3;
+    Mat next,next1;
+    Point G = cv::Point(0, 0);
+    for (;;) {
+        DWORD start = GetTickCount64();
+        for (;;) {
+            vector< vector<cv::Point> > contours_subset1;
+            vector< vector<cv::Point> > contours_subset2;
+            cv::Point minP1 = cv::Point(0, 0);
+            cv::Point maxP1 = cv::Point(0, 0);
+            cv::Point minP2 = cv::Point(0, 0);
+            cv::Point maxP2 = cv::Point(0, 0);
+            cv::Point imminP1 = cv::Point(0, 0);
+            cv::Point immaxP1 = cv::Point(0, 0);
+            cv::Point imminP2 = cv::Point(0, 0);
+            cv::Point immaxP2 = cv::Point(0, 0);
+
+            int keyboard = waitKey(10);
+            waitKey(1);
+            capture >> frame2;
+            frame3 = frame2.clone();//描画用の画像
+            if (frame2.empty())
+                break;
+            //medianBlur(frame2, frame2, 9);
+            cvtColor(frame2, next1, COLOR_BGR2GRAY);
+
+            medianBlur(next1,next1,5);
+            bilateralFilter(next1, next, 17, 40, 5);
+           
+            next = next(selection);
+            copy2 = next.clone();
+            /*
+            Mat flow(prvs.size(), CV_32FC2);
+            calcOpticalFlowFarneback(prvs, next, flow, 0.5, 3, 17, 3, 5, 1.1, 0);
+            Mat flow_copy;
+            //GaussianBlur(flow, flow_copy, cv::Size(3, 3), 0, 0);
+            // visualization
+            Mat flow_parts[2];
+            split(flow_copy, flow_parts);
+
+            //split(flow, flow_parts);
+            Mat magnitude, angle, magn_norm;
+            cartToPolar(flow_parts[0], flow_parts[1], magnitude, angle, true);
+            normalize(magnitude, magn_norm, 0.0f, 1.0f, NORM_MINMAX);
+            //imshow("an", magn_norm);
+
+            angle *= ((1.f / 360.f) * (180.f / 255.f));
+            //build hsv image
+            Mat _hsv[3], hsv, hsv8, bgr;
+            _hsv[0] = angle;
+            _hsv[1] = Mat::ones(angle.size(), CV_32F);
+            _hsv[2] = magn_norm/4;
+
+            Mat h1, h2, h12;
+            threshold(_hsv[0], h1, 60, 360, THRESH_BINARY);
+
+            threshold(_hsv[0], h2, 120, 360, THRESH_BINARY);
+            bitwise_or(h1, h2, h12);
+            merge(_hsv, 3, hsv);
+
+            hsv.convertTo(hsv8, CV_8U, 255.0);
+            */
+            Mat bgr;
+            Mat hsv8 = Optical(prvs,next);
+            Mat bgf1 = mask1(hsv8);
+            Mat bgf2 = mask2(hsv8);
+            
+            Canny(copy2, copy2, 10, 15, 3, true);
+            bitwise_and(copy2, bgf1, bgf1);
+            bitwise_and(copy2, bgf2, bgf2);
+            /*
+            cv::findContours(bgf1, contours1, hierarchy1, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+            for (auto contour1 = contours1.begin(); contour1 != contours1.end(); contour1++) {
+                for (i = 0; i < contours1.size(); i++) {
+                    double area1 = 0;
+                    area1 = contourArea(contours1.at(i));
+                    if (area1 > 18 && area1 < 30) {
+                        contours_subset1.push_back(contours1.at(i));
+                    }
+                }
+            }
+
+            cv::findContours(bgf2, contours2, hierarchy2, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+            for (auto contour2 = contours2.begin(); contour2 != contours2.end(); contour2++) {
+                for (j = 0; j < contours2.size(); j++) {
+                    double area2 = 0;
+                    area2 = contourArea(contours2.at(j));
+                    if (area2 > 18 && area2 < 30) {
+                        contours_subset2.push_back(contours2.at(j));
+                    }
+                }
+            }
+            */
+            contours_subset1 = contours(bgf1);
+            contours_subset2 = contours(bgf2);
+            for (int i = 0; i < contours_subset1.size(); i++) {
+                minP1 = minPoint(contours_subset1.at(i));
+                maxP1 = maxPoint(contours_subset1.at(i));
+
+                
+                minP1.x = minP1.x+30.0;
+                minP1.y = minP1.y+120.0;
+                
+                maxP1.x = maxP1.x+30.0;
+                maxP1.y = maxP1.y+120.0;
+                imminP1 = minP1;
+                immaxP1 = maxP1;
+            }
+
+            for (int i = 0; i < contours_subset2.size(); i++) {
+                minP2 = minPoint(contours_subset2.at(i));
+                maxP2 = maxPoint(contours_subset2.at(i));
+                
+                minP2.x = minP2.x + 30.0;
+                minP2.y = minP2.y + 120.0;
+
+                maxP2.x = maxP2.x + 30.0;
+                maxP2.y = maxP2.y + 120.0;
+                imminP2 = minP2;
+                immaxP2 = maxP2;
+            }
+            //cv::polylines(frame3, contours_subset2, true, cv::Scalar(0, 0, 255), 1);
+            //cv::polylines(frame3, contours_subset1, true, cv::Scalar(0, 255, 0), 1);
+            if (minP1 != cv::Point(0, 0) && minP2 != cv::Point(0, 0) && maxP1 != cv::Point(0, 0) && maxP1 != cv::Point(0, 0)) {
+                
+                if (minP1.y < minP2.y) {
+                    imminP1.y = minP1.y + 20.0;
+                    immaxP1.y = maxP1.y - 20.0;
+                }
+                else {
+                    imminP2.y = minP2.y - 20.0;
+                    immaxP2.y = maxP2.y + 20.0;
+                }
+                cv::line(frame3, imminP1, immaxP1, cv::Scalar(0, 255, 0), 4, 8);
+                cv::line(frame3, imminP2, immaxP2, cv::Scalar(0, 0, 255), 4, 8);
+                    /*
+                    double s1 = 0, s2 = 0;
+                    int P1X = minP2.x;
+                    int P1Y = minP2.y;
+                    int P2Y = maxP1.y;
+                    int P2X = minP1.x;
+                    int P3X = maxP2.x;
+                    int P3Y = maxP2.y;
+                    int P4Y = minP1.y;
+                    int P4X = maxP1.x;
+
+                    s1 = ((P4X - P2X) * (P1Y - P2Y) - (P4Y - P2Y) * (P1X - P2X)) / 2;
+                    s2 = ((P4X - P2X) * (P2Y - P3Y) - (P4Y - P2Y) * (P2X - P3X)) / 2;
+
+                    v.at(k) = cv::Point(0, 0);
+                    v.at(k).x = P1X + ((double)P3X - (double)P1X) * s1 / (s1 + s2);
+                    v.at(k).y = P1Y + ((double)P3Y - (double)P1Y) * s1 / (s1 + s2);
+                    */
+                
+                v.at(k) = center(immaxP1, imminP1, immaxP2, imminP2);
+                printf("{%d,%d}\n",v.at(k).x,v.at(k).y);
+                if (v.at(k).x < 0 || v.at(k).y < 0 || v.at(k).x > 700 || v.at(k).y > 450)
+                    continue;
+                    
+                /*
+                Gs.at(k) = v.at(k);
+                if (k == 3) {
+                    for (int j = 0; j < 3; j++) {
+                        distance.at(j) = sqrt(pow(Gs.at(j).x - Gs.at(k).x, 2) + pow(Gs.at(j).y - Gs.at(k).y, 2));
+                    }
+                    int min = *std::min_element(distance.begin(), distance.end());
+                    std::vector<double>::iterator minIt = std::min_element(distance.begin(), distance.end());
+                    size_t minIndex = std::distance(distance.begin(), minIt);
+                    p = minIndex;
+
+                    distance.at(0) = sqrt(pow(Gs.at(0).x - Gs.at(p).x, 2) + pow(Gs.at(0).y - Gs.at(p).y, 2));
+                    distance.at(1) = sqrt(pow(Gs.at(1).x - Gs.at(p).x, 2) + pow(Gs.at(1).y - Gs.at(p).y, 2));
+                    distance.at(2) = sqrt(pow(Gs.at(2).x - Gs.at(p).x, 2) + pow(Gs.at(2).y - Gs.at(p).y, 2));
+                    if(distance.at(0)>100 )
+                }
+                */
+                G.x += v.at(k).x;
+                G.y += v.at(k).y;
+
+                if (2 <= k && k < 5) {
+                    Gv.at(c).x = G.x / (k + 1);
+                    Gv.at(c).y = G.y / (k + 1);
+                    c++;
+                }
+                else if (5 <= k && k < 9) {
+                    Gv.at(c).x = G.x / (k + 1);
+                    Gv.at(c).y = G.y / (k + 1);
+
+                    for (int i = 0; i < 3; i++) {
+                        if ((Gv.at(c).x > Gv.at(i).x - 10 && Gv.at(c).x < Gv.at(i).x + 10) && (Gv.at(c).y > Gv.at(i).y - 10 && Gv.at(c).y < Gv.at(i).y + 10)) {
+                            if (Gv.at(i).x != 0 && Gv.at(i).y != 0) {
+                                count.at(i) += 1;
+                            }
+                        }
+                    }
+                    c++;
+
+                    int max = *std::max_element(count.begin(), count.end());
+                    std::vector<int>::iterator maxIt = std::max_element(count.begin(), count.end());
+                    size_t maxIndex = std::distance(count.begin(), maxIt);
+                    l = maxIndex;
+                }
+                printf("k=%d\n", k);
+                k++;
+            
+                if (k > 9) {
+                    k = 0;
+                    G = Point(0, 0);
+                    Gv.at(l) = Point(0, 0);
+                    count = { 0,0,0 };
+                    c = 0;
+                }        
+
+                if (k==9 && Gv.at(l) != cv::Point(0, 0) && Gv.at(l).x < 700 && Gv.at(l).y < 480/* && abs(Gv.x - G.x)<100 && abs(Gv.y - G.y) < 100*/) {
+                    cv::circle(frame3, Gv.at(l), 15, Scalar(255, 0, 255), 3, 8);
+                    printf("%d,%d,%d\n",count.at(0),count.at(1),count.at(2));
+                    printf("%d\n", l);
+                    e++;
+                    putText(frame3, "DETECT!!", cv::Point(200, 100), cv::FONT_ITALIC, 1.2, cv::Scalar(255, 0, 0), 3);
+                }
+                    
+                cvtColor(hsv8, bgr, COLOR_HSV2BGR);
+            }
+            imshow("a", copy2);
+            imshow("image", frame3);
+
+            //writer << frame2;
+
+            if (keyboard == 'q' || keyboard == 27) {
+                break;
+            }
+            DWORD end = GetTickCount64();
+            processtime = ((double)(end - start) / 1000);
+
+            
+            //if (processtime > 5 && c>2) {
+            if (e>2) {
+               //break;
+            }
+            prvs = next;
+            frame1 = frame2;
+            printf("%lf\n", processtime);
+        }
+        printf("%lf\n",processtime);
+        Rect roi(Gv.at(l).x, Gv.at(l).y - 30, 120, 90);
+        for (;;) {
+            cv::Mat dst = templateMatch(frame2, frame2(roi));
+            //dst = templateMatch(dst, frame2(roi));
+            imshow("Tracking", dst);
+            capture >> frame2;
+            int keyboard = waitKey(10);
+
+            if (keyboard == 'w') {
+                break;
+            }
+        }
+    }
+    return 0;
+}
